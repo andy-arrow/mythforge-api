@@ -7,7 +7,7 @@ Production-ready Docker stack: **MP3 → HD video** (black 1280x720, synced audi
 ## Alfred deploy (copy-paste)
 
 ```bash
-cd /opt && git clone https://github.com/andreasar/mythforge-api.git mythforge-api
+cd /opt && git clone https://github.com/andy-arrow/mythforge-api.git mythforge-api
 cd mythforge-api && docker compose up -d
 ```
 
