@@ -22,19 +22,29 @@ Upload any MP3 → get `job_id` → video ready in ~8s. Share the exports URL.
 
 ## Phase 2: AI upgrade (3-min build)
 
+**As `ubuntu` user use `sudo` for docker** (or run `sudo usermod -aG docker ubuntu` once, then log out and back in).
+
+```bash
+cd /opt/mythforge-api
+git pull
+chmod +x phase2-upgrade.sh && ./phase2-upgrade.sh
+```
+
+Or manually:
+
 ```bash
 cd /opt/mythforge-api
 
 # 1. Check current dependencies
-docker exec $(docker compose ps -q api) pip list | grep -E "(whisper|diffusers|torch)"
+sudo docker exec $(sudo docker compose ps -q api) pip list | grep -E "(whisper|diffusers|torch)"
 
 # 2. Rebuild with AI deps (requirements.txt already includes faster-whisper, diffusers, etc.)
-docker compose down
-docker compose up -d --build
+sudo docker compose down
+sudo docker compose up -d --build
 
 sleep 10
-docker compose ps
-docker compose logs api --tail=10
+sudo docker compose ps
+sudo docker compose logs api --tail=10
 
 # 3. Verify AI packages loaded
 chmod +x verify-ai.sh && ./verify-ai.sh
@@ -65,7 +75,8 @@ ssh root@YOUR_VPS_IP "cd /opt && rm -rf mythforge-api && git clone https://githu
 cd /opt && git clone https://github.com/andy-arrow/mythforge-api.git mythforge-api
 cd mythforge-api
 mkdir -p exports && chown ubuntu:ubuntu exports   # or chown to your app user; skip if root-only
-docker compose up -d
+# As ubuntu user: use sudo for docker (or add to group: sudo usermod -aG docker ubuntu, then log out/in)
+sudo docker compose up -d
 ```
 
 Deploy in ~60 seconds. No terminal expertise required.
