@@ -1,4 +1,5 @@
 # Local/test
+exports/
 *.mp3
 *.mp4
 .env
