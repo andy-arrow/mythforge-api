@@ -16,8 +16,8 @@ RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
 COPY simple_api.py .
 
-RUN mkdir -p /app/exports /app/models && \
-    chown appuser:appuser /app/exports /app/models
+RUN mkdir -p /app/exports /app/models /app/assets/bg && \
+    chown -R appuser:appuser /app/exports /app/models /app/assets
 
 USER appuser
 

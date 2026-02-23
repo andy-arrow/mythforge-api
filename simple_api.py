@@ -59,7 +59,10 @@ FONT_BOLD    = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 EXPORTS_ROOT.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
-(ASSETS_DIR / "bg").mkdir(parents=True, exist_ok=True)
+try:
+    (ASSETS_DIR / "bg").mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass  # created by Dockerfile; tolerate read-only mounts gracefully
 
 # ---------------------------------------------------------------------------
 # Scene themes
