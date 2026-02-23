@@ -361,10 +361,10 @@ def main() -> None:
                         help="Where to save the downloaded ElevenLabs MP3")
     parser.add_argument("--check-task", metavar="TASK_ID",
                         help="Debug: check status of an existing Kie.ai task and exit")
-    # Phase 6 options — AI visuals enabled by default
+    # Phase 6 options — AI video enabled by default for best quality
     parser.add_argument("--ai-visuals", choices=["none", "images", "video"],
-                        default="images",
-                        help="'images' (default, ~$0.50), 'video' (~$6), 'none' (paintings only)")
+                        default="video",
+                        help="'video' (default, ~$6), 'images' (~$0.50), 'none' (paintings only)")
     parser.add_argument("--max-ai-segs", type=int, default=0,
                         help="Limit AI generation to N segments (0 = unlimited)")
     args = parser.parse_args()
@@ -423,7 +423,12 @@ def main() -> None:
 
     print()
     if result.get("success"):
-        phase_label = "PHASE 6 (AI)" if args.ai_visuals != "none" else "PHASE 5"
+        if args.ai_visuals == "video":
+            phase_label = "PHASE 6.2 (AI VIDEO)"
+        elif args.ai_visuals == "images":
+            phase_label = "PHASE 6 (AI IMAGES)"
+        else:
+            phase_label = "PHASE 5"
         print("=" * 60)
         print(f"  ✅  {phase_label} VIDEO COMPLETE")
         print("=" * 60)
@@ -432,6 +437,7 @@ def main() -> None:
         print(f"  Duration   : {result['duration_s']}s")
         print(f"  Segments   : {result['segments']}")
         print(f"  AI Images  : {result.get('ai_images', 0)}")
+        print(f"  AI Videos  : {result.get('ai_videos', 0)}")
         print(f"  Themes     : {result['themes']}")
         print(f"  Phase      : {result['phase']}")
     else:
