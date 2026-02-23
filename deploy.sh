@@ -39,7 +39,7 @@ echo ""
 echo "=== Waiting for health (up to 60s) ==="
 for i in $(seq 1 12); do
   sleep 5
-  STATUS=$(curl -s http://localhost:8000/health 2>/dev/null | grep -o '"healthy"' || true)
+  STATUS=$(curl -s http://localhost/health 2>/dev/null | grep -o '"healthy"' || true)
   if [ "$STATUS" = '"healthy"' ]; then
     echo "API healthy after $((i * 5))s"
     break
@@ -62,22 +62,12 @@ echo ""
 echo "=== Smoke test ==="
 
 # Check ffmpeg on host, else run inside container
-if command -v ffmpeg &>/dev/null; then
-  ffmpeg -f lavfi -i "sine=frequency=440:duration=5" -c:a libmp3lame -y /tmp/mythforge_test.mp3 -loglevel error
-  MP3_SRC="/tmp/mythforge_test.mp3"
-else
-  $DOCKER exec "$($DC ps -q api)" ffmpeg -f lavfi -i "sine=frequency=440:duration=5" -c:a libmp3lame -y /app/exports/test.mp3 -loglevel error
-  MP3_SRC="@/app/exports/test.mp3"
-  # Run curl inside container using container path
-  RESP=$($DOCKER exec "$($DC ps -q api)" curl -s -X POST -F "mp3=@/app/exports/test.mp3" http://localhost:8000/api/render)
-  echo "$RESP"
-  JOB_ID=$(echo "$RESP" | grep -o '"job_id":"[^"]*"' | cut -d'"' -f4)
-  [ -n "$JOB_ID" ] && [ "$JOB_ID" != "null" ] && \
-    echo "Public: http://${VPS_IP:-51.83.154.112}/exports/${JOB_ID}/output.mp4"
-  exit 0
-fi
+# Generate test tone inside container, render via port 80 (nginx)
+$DOCKER exec "$($DC ps -q api)" ffmpeg \
+  -f lavfi -i "sine=frequency=440:duration=5" \
+  -c:a libmp3lame -y /app/exports/test.mp3 -loglevel error
 
-RESP=$(curl -s -X POST -F "mp3=@${MP3_SRC}" http://localhost:8000/api/render)
+RESP=$(curl -s -X POST -F "mp3=@/opt/mythforge-api/exports/test.mp3" http://localhost/api/render)
 echo "$RESP"
 JOB_ID=$(echo "$RESP" | grep -o '"job_id":"[^"]*"' | cut -d'"' -f4)
 [ -n "$JOB_ID" ] && [ "$JOB_ID" != "null" ] && \
