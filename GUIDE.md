@@ -1,28 +1,28 @@
 # MythForge — Guide for Andreas
 
-## Goal
-Hera Episode 1: narration audio + AI-generated visuals + captions.  
-URL: `http://VPS_IP/exports/<JOB_ID>/output.mp4`
-
----
-
 ## Status
-- ✅ Phase 1: API working — MP3 → video
-- ✅ Phase 2: AI dependencies installed (Whisper, SDXL)
-- ⏳ Phase 3: AI pipeline — next
+
+- ✅ Phase 1: MP3 → video
+- ✅ Phase 2: AI deps installed
+- ✅ Phase 3: Whisper transcription + styled caption frames + FFmpeg assembly
 
 ---
 
 ## Step 1 — Deploy (one command)
 
-Open Terminal on your Mac and paste:
-
 ```bash
 ssh ubuntu@vps-4d43058a.vps.ovh.net \
-  "cd /opt/mythforge-api && git pull && chmod +x deploy.sh && ./deploy.sh"
+  "cd /opt/mythforge-api && git fetch origin && git reset --hard origin/main && chmod +x deploy.sh && ./deploy.sh"
 ```
 
-Done. It pulls latest code, rebuilds, waits for healthy, smoke-tests.
+What it does:
+1. Pulls latest code (hard reset, no merge conflicts)
+2. Rebuilds Docker image (installs DejaVu fonts, all AI deps)
+3. Starts gunicorn (2 workers)
+4. **Pre-downloads Whisper model** in background (~39 MB for `tiny`)
+5. Runs smoke test: 5-second tone → video + SRT subtitles
+
+**First deploy after Phase 3:** The build downloads all AI packages (~3 GB total). Allow 5 minutes.
 
 ---
 
@@ -32,6 +32,7 @@ Done. It pulls latest code, rebuilds, waits for healthy, smoke-tests.
 ssh ubuntu@vps-4d43058a.vps.ovh.net \
   "curl -s -X POST \
      -F 'mp3=@/opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3' \
+     -F 'title=HERA — The Birth of War' \
      http://localhost/api/render"
 ```
 
@@ -39,19 +40,27 @@ Response:
 ```json
 {
   "success": true,
-  "job_id": "8c7436df",
-  "url": "http://51.83.154.112/exports/8c7436df/output.mp4"
+  "job_id": "abc12345",
+  "url": "http://51.83.154.112/exports/abc12345/output.mp4",
+  "subtitles_url": "http://51.83.154.112/exports/abc12345/subtitles.srt",
+  "duration_s": 253.74,
+  "segments": 87,
+  "phase": "3-ai-pipeline"
 }
 ```
 
-Open the URL in your browser to watch.
+Open both URLs in your browser:
+- `output.mp4` → the full video with caption frames
+- `subtitles.srt` → the Whisper transcript (download and review)
+
+**Expected render time: ~50–90 seconds** for 4-minute audio.
 
 ---
 
 ## Step 3 — Check job status
 
 ```bash
-curl http://51.83.154.112/api/status/8c7436df
+curl http://51.83.154.112/api/status/abc12345
 ```
 
 ---
@@ -61,19 +70,42 @@ curl http://51.83.154.112/api/status/8c7436df
 | Problem | Command |
 |---------|---------|
 | Containers down | `ssh ubuntu@... "cd /opt/mythforge-api && ./deploy.sh"` |
-| Check logs | `ssh ubuntu@... "cd /opt/mythforge-api && sudo docker compose logs api --tail=30"` |
+| Check API logs | `ssh ubuntu@... "cd /opt/mythforge-api && sudo docker compose logs api --tail=30"` |
+| Check nginx logs | `ssh ubuntu@... "cd /opt/mythforge-api && sudo docker compose logs nginx --tail=20"` |
 | Find Hera MP3 | `ssh ubuntu@... "find /opt /home -name 'hera*.mp3' 2>/dev/null"` |
-| Test with 5s tone | `ssh ubuntu@... "curl -s -X POST -F 'mp3=@/tmp/test.mp3' http://localhost/api/render"` |
+| Quick render test | `ssh ubuntu@... "curl -s -X POST -F 'mp3=@/tmp/test.mp3' http://localhost/api/render"` |
+| Check Whisper ready | `curl http://51.83.154.112/health` → look for `"whisper_ready": true` |
+| Force model download | `ssh ubuntu@... "sudo docker compose exec api python -c 'from simple_api import get_whisper_model; get_whisper_model()'"`|
 
 ---
 
-## Phase 3 roadmap
+## What Phase 3 output looks like
+
+Each frame (1280×720):
+```
+┌─────────────────────────────────────────┐
+│              HERA — Episode 1            │  ← gold label, 20px
+│    ────────────────────────────────     │  ← thin gold separator
+│                                          │
+│                                          │
+│     "She rose from the sea of chaos,    │  ← cream white 48px text
+│      eldest daughter of Cronus,          │    word-wrapped, drop shadow
+│      queen before she had a throne."     │
+│                                          │
+│                                          │
+│    ────────────────────────────────     │  ← thin gold accent bar
+│████████████                              │  ← progress bar (gold)
+└─────────────────────────────────────────┘
+```
+
+---
+
+## Phase 4 roadmap
 
 | Step | What happens |
 |------|-------------|
-| 3a: Whisper | Audio → timestamped transcript |
-| 3b: SDXL | Transcript → Hera images per scene |
-| 3c: Captions | Subtitles burned onto video |
-| 3d: Music | Orchestral background layer |
+| 4a: SDXL (GPU) | Generate one image per scene — visual illustrations |
+| 4b: Scene backgrounds | Replace dark background with AI-generated scene art |
+| 4c: Background music | Mix orchestral layer under narration |
 
-Say "go" to start Phase 3.
+Say "go" to start Phase 4.

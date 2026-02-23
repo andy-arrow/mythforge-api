@@ -8,10 +8,14 @@ services:
       - API_KEY=${API_KEY:-}
       - FLASK_ENV=${FLASK_ENV:-production}
       - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-500}
-      - FFMPEG_TIMEOUT=${FFMPEG_TIMEOUT:-600}
+      - FFMPEG_TIMEOUT=${FFMPEG_TIMEOUT:-660}
       - JOB_TTL_HOURS=${JOB_TTL_HOURS:-48}
+      - WHISPER_MODEL=${WHISPER_MODEL:-tiny}
+      - WHISPER_LANGUAGE=${WHISPER_LANGUAGE:-en}
+      - MODELS_DIR=/app/models
     volumes:
       - ./exports:/app/exports
+      - ./models:/app/models        # persists downloaded Whisper model across deploys
     # mem_limit / cpus are the correct resource constraints for docker compose
     # (deploy.resources only applies to docker stack / Swarm)
     mem_limit: 20g
@@ -21,7 +25,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
-      start_period: 30s
+      start_period: 60s    # extra time for Whisper model download on first boot
       retries: 3
     restart: unless-stopped
     logging:

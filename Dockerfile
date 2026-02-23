@@ -3,7 +3,8 @@ FROM python:3.12-slim
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
-    curl && \
+    curl \
+    fonts-dejavu-core && \
     rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --shell /bin/bash appuser
@@ -15,21 +16,23 @@ RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
 COPY simple_api.py .
 
-RUN mkdir -p /app/exports && chown appuser:appuser /app/exports
+RUN mkdir -p /app/exports /app/models && \
+    chown appuser:appuser /app/exports /app/models
 
 USER appuser
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+# start_period gives the Whisper model time to download on first boot
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# 2 workers: one can render while the other handles health checks / status
-# timeout 660 > FFMPEG_TIMEOUT=600 so gunicorn never kills a live render
+# 2 workers: one renders while the other handles health/status requests
+# timeout 720 > FFMPEG_TIMEOUT so gunicorn never kills a live render
 CMD ["gunicorn", \
      "--bind", "0.0.0.0:8000", \
      "--workers", "2", \
-     "--timeout", "660", \
+     "--timeout", "720", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
      "--log-level", "info", \
