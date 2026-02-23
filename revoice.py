@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 revoice.py — Re-voice a narration with ElevenLabs (via kie.ai), then render
-             a Phase 5 MythForge video with real painting backgrounds.
+             a Phase 6 MythForge video with AI-generated or painting backgrounds.
 
 Workflow
 --------
@@ -9,16 +9,26 @@ Workflow
   2. POST kie.ai ElevenLabs TTS  →  get a task ID
   3. Poll GET  kie.ai /api/v1/jobs/recordInfo  →  wait for audio URL
   4. Download the ElevenLabs MP3 to /tmp/
-  5. POST /api/render with the new MP3  →  Phase 5 video
+  5. POST /api/render with the new MP3  →  Phase 6 video (optional AI visuals)
 
 Usage
 -----
+  # Phase 5 (painting backgrounds — default, free):
   python3 revoice.py \\
       --audio  /opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3 \\
       --title  "HERA — The Birth of War" \\
       --voice  George \\
       --kie-key YOUR_KIE_API_KEY \\
       --api-url http://51.83.154.112
+
+  # Phase 6 with AI-generated images (~$0.50/video):
+  python3 revoice.py \\
+      --audio  /opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3 \\
+      --title  "HERA — The Birth of War" \\
+      --voice  George \\
+      --kie-key YOUR_KIE_API_KEY \\
+      --api-url http://51.83.154.112 \\
+      --ai-visuals images
 
 ElevenLabs voices (male, recommended for mythology):
   George   — British, deep, authoritative  ← default
@@ -278,20 +288,38 @@ def download_audio(audio_urls: list[str], dest: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 5 — render Phase 5 video
+# Step 5 — render Phase 6 video
 # ---------------------------------------------------------------------------
 
-def render_video(audio_path: Path, api_url: str, title: str, bgm_volume: float) -> dict:
+def render_video(
+    audio_path: Path,
+    api_url: str,
+    title: str,
+    bgm_volume: float,
+    ai_visuals: str = "none",
+    kie_key: str = "",
+    max_ai_segs: int = 0,
+) -> dict:
     """POST the ElevenLabs audio to /api/render and return the JSON response."""
-    print(f"[4/5] Rendering Phase 5 video via {api_url}/api/render …")
+    phase = "6 (AI)" if ai_visuals != "none" else "5 (paintings)"
+    print(f"[4/5] Rendering Phase {phase} video via {api_url}/api/render …")
+    
     cmd = [
         "curl", "-s", "-X", "POST",
         "-F", f"mp3=@{audio_path}",
         "-F", f"title={title}",
         "-F", f"bgm_volume={bgm_volume}",
-        f"{api_url}/api/render",
+        "-F", f"ai_visuals={ai_visuals}",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=720)
+    
+    if ai_visuals != "none" and kie_key:
+        cmd.extend(["-F", f"kie_key={kie_key}"])
+    if max_ai_segs > 0:
+        cmd.extend(["-F", f"max_ai_segs={max_ai_segs}"])
+    
+    cmd.append(f"{api_url}/api/render")
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)  # longer for AI
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
@@ -311,7 +339,7 @@ def check_task(task_id: str, kie_key: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Re-voice Hera narration with ElevenLabs and render Phase 5 video.",
+        description="Re-voice Hera narration with ElevenLabs and render Phase 6 video.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -329,6 +357,12 @@ def main() -> None:
                         help="Where to save the downloaded ElevenLabs MP3")
     parser.add_argument("--check-task", metavar="TASK_ID",
                         help="Debug: check status of an existing Kie.ai task and exit")
+    # Phase 6 options
+    parser.add_argument("--ai-visuals", choices=["none", "images", "video"],
+                        default="none",
+                        help="Phase 6: 'none' (paintings), 'images' (~$0.50), 'video' (~$6)")
+    parser.add_argument("--max-ai-segs", type=int, default=0,
+                        help="Limit AI generation to N segments (0 = unlimited)")
     args = parser.parse_args()
 
     # Debug mode: just check a task and exit
@@ -347,9 +381,14 @@ def main() -> None:
     out_audio = Path(args.out_audio)
     out_audio.parent.mkdir(parents=True, exist_ok=True)
 
+    ai_mode = "AI images" if args.ai_visuals == "images" else (
+        "AI video" if args.ai_visuals == "video" else "paintings"
+    )
+
     print("=" * 60)
     print(f"  MythForge revoice — {args.title}")
     print(f"  Voice    : {args.voice}")
+    print(f"  Visuals  : {ai_mode}")
     print(f"  API      : {args.api_url}")
     print("=" * 60)
 
@@ -364,7 +403,15 @@ def main() -> None:
         download_audio(audio_urls, out_audio)
 
         # 5. Render
-        result = render_video(out_audio, args.api_url, args.title, args.bgm_volume)
+        result = render_video(
+            out_audio,
+            args.api_url,
+            args.title,
+            args.bgm_volume,
+            ai_visuals=args.ai_visuals,
+            kie_key=args.kie_key,
+            max_ai_segs=args.max_ai_segs,
+        )
 
     except Exception as exc:
         print(f"\n❌  {exc}", file=sys.stderr)
@@ -372,13 +419,15 @@ def main() -> None:
 
     print()
     if result.get("success"):
+        phase_label = "PHASE 6 (AI)" if args.ai_visuals != "none" else "PHASE 5"
         print("=" * 60)
-        print("  ✅  PHASE 5 VIDEO COMPLETE")
+        print(f"  ✅  {phase_label} VIDEO COMPLETE")
         print("=" * 60)
         print(f"  Video URL  : {result['url']}")
         print(f"  SRT URL    : {result['subtitles_url']}")
         print(f"  Duration   : {result['duration_s']}s")
         print(f"  Segments   : {result['segments']}")
+        print(f"  AI Images  : {result.get('ai_images', 0)}")
         print(f"  Themes     : {result['themes']}")
         print(f"  Phase      : {result['phase']}")
     else:
