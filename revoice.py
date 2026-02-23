@@ -176,8 +176,8 @@ def generate_elevenlabs(
         task_id = resp["data"]["taskId"]
         print(f"     Task ID : {task_id}  — polling …")
 
-        # Poll until done (max 5 min)
-        for attempt in range(60):
+        # Poll until done (max 10 min)
+        for attempt in range(120):
             time.sleep(5)
             status = _kie_get(f"/api/v1/jobs/recordInfo?taskId={task_id}", kie_key)
 
@@ -214,9 +214,13 @@ def generate_elevenlabs(
             elif success_flag in (2, 3):
                 raise RuntimeError(f"ElevenLabs generation failed: {s_data}")
             else:
-                print(f"     … still processing (attempt {attempt + 1}/60)")
+                # Print debug every 10 attempts or on first
+                if attempt == 0 or (attempt + 1) % 10 == 0:
+                    print(f"     … attempt {attempt + 1}/120  successFlag={success_flag}  keys={list(s_data.keys())}")
+                else:
+                    print(f"     … still processing (attempt {attempt + 1}/120)")
         else:
-            raise RuntimeError("ElevenLabs generation timed out after 5 minutes")
+            raise RuntimeError("ElevenLabs generation timed out after 10 minutes")
 
     return audio_urls
 
@@ -286,6 +290,13 @@ def render_video(audio_path: Path, api_url: str, title: str, bgm_volume: float) 
 # Main
 # ---------------------------------------------------------------------------
 
+def check_task(task_id: str, kie_key: str) -> None:
+    """Debug utility: check status of a Kie.ai task."""
+    print(f"Checking task: {task_id}")
+    status = _kie_get(f"/api/v1/jobs/recordInfo?taskId={task_id}", kie_key)
+    print(json.dumps(status, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Re-voice Hera narration with ElevenLabs and render Phase 5 video.",
@@ -293,7 +304,7 @@ def main() -> None:
         epilog=__doc__,
     )
     parser.add_argument(
-        "--audio", required=True,
+        "--audio",
         help="Path to the original narration MP3 (e.g. hera_full_audio_combined.mp3)",
     )
     parser.add_argument("--title",      default="HERA — The Birth of War")
@@ -304,7 +315,17 @@ def main() -> None:
     parser.add_argument("--bgm-volume", type=float, default=0.15)
     parser.add_argument("--out-audio",  default="/tmp/hera_elevenlabs.mp3",
                         help="Where to save the downloaded ElevenLabs MP3")
+    parser.add_argument("--check-task", metavar="TASK_ID",
+                        help="Debug: check status of an existing Kie.ai task and exit")
     args = parser.parse_args()
+
+    # Debug mode: just check a task and exit
+    if args.check_task:
+        check_task(args.check_task, args.kie_key)
+        sys.exit(0)
+
+    if not args.audio:
+        parser.error("--audio is required (unless using --check-task)")
 
     audio_path = Path(args.audio)
     if not audio_path.exists():
