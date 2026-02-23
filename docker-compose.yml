@@ -6,6 +6,7 @@ services:
     environment:
       - VPS_IP=${VPS_IP:-51.83.154.112}
       - API_KEY=${API_KEY:-}
+      - KIE_KEY=${KIE_KEY:-}           # Phase 6: Kie.ai API key for AI visuals
       - FLASK_ENV=${FLASK_ENV:-production}
       - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-500}
       - FFMPEG_TIMEOUT=${FFMPEG_TIMEOUT:-660}

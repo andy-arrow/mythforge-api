@@ -16,10 +16,13 @@ RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
 COPY simple_api.py .
 
-RUN mkdir -p /app/exports /app/models /app/assets/bg && \
+RUN mkdir -p /app/exports /app/models /app/assets/bg /app/assets/ai && \
     chown -R appuser:appuser /app/exports /app/models /app/assets
 
 USER appuser
+
+# Phase 6: Kie.ai API key (optional, enables AI-generated visuals)
+ENV KIE_KEY=""
 
 EXPOSE 8000
 
