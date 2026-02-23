@@ -184,39 +184,38 @@ def generate_elevenlabs(
             if status.get("code") != 200:
                 raise RuntimeError(f"Status poll failed: {status}")
 
-            s_data       = status.get("data", {})
-            success_flag = s_data.get("successFlag", 0)
+            s_data = status.get("data", {})
+            state  = s_data.get("state", "")
 
-            if success_flag == 1:
-                # Try every plausible field name for the audio URL
-                info      = s_data.get("info") or s_data.get("response") or {}
-                audio_url = (
-                    info.get("audioUrl")
-                    or info.get("audio_url")
-                    or info.get("resultUrl")
-                    or info.get("resultUrls")
-                    or s_data.get("resultUrls")
-                    or s_data.get("audioUrl")
-                )
-                if isinstance(audio_url, list):
-                    audio_url = audio_url[0] if audio_url else None
+            if state == "success":
+                # resultJson is a JSON *string* — parse it
+                result_json_str = s_data.get("resultJson", "{}")
+                try:
+                    result_obj = json.loads(result_json_str)
+                except json.JSONDecodeError:
+                    result_obj = {}
+
+                # Extract audio URL from resultUrls array
+                urls = result_obj.get("resultUrls") or []
+                audio_url = urls[0] if urls else None
 
                 if audio_url:
                     print(f"     ✓ Audio ready: {audio_url}")
                     audio_urls.append(audio_url)
                     break
                 else:
-                    # Dump the full response so we can debug unknown formats
-                    print(f"     ✗ successFlag=1 but no audio URL found.")
-                    print(f"       Full response: {json.dumps(s_data)[:500]}")
+                    print(f"     ✗ state=success but no audio URL found.")
+                    print(f"       resultJson: {result_json_str[:300]}")
                     raise RuntimeError("Could not locate audio URL in kie.ai response")
 
-            elif success_flag in (2, 3):
-                raise RuntimeError(f"ElevenLabs generation failed: {s_data}")
+            elif state == "failed":
+                fail_msg = s_data.get("failMsg") or s_data.get("failCode") or "unknown"
+                raise RuntimeError(f"ElevenLabs generation failed: {fail_msg}")
+
             else:
-                # Print debug every 10 attempts or on first
+                # Still processing (state might be empty, "pending", "processing", etc.)
                 if attempt == 0 or (attempt + 1) % 10 == 0:
-                    print(f"     … attempt {attempt + 1}/120  successFlag={success_flag}  keys={list(s_data.keys())}")
+                    print(f"     … attempt {attempt + 1}/120  state={state!r}  keys={list(s_data.keys())}")
                 else:
                     print(f"     … still processing (attempt {attempt + 1}/120)")
         else:
