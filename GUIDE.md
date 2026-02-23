@@ -1,111 +1,115 @@
-# MythForge — Guide for Andreas
+# MythForge — Quick Reference Guide
 
-## Status
+## Current State: Phase 6.2
 
-- ✅ Phase 1: MP3 → video
-- ✅ Phase 2: AI deps installed
-- ✅ Phase 3: Whisper transcription + styled caption frames + FFmpeg assembly
+**What it does:** Takes the original Hera MP3, re-voices it with ElevenLabs (Bill — very deep), generates AI video clips per segment via Kie.ai Grok Imagine, and assembles a full HD video with dramatic Ken Burns.
 
 ---
 
-## Step 1 — Deploy (one command)
+## One-Command Deploy
 
 ```bash
-ssh ubuntu@vps-4d43058a.vps.ovh.net \
-  "cd /opt/mythforge-api && git fetch origin && git reset --hard origin/main && chmod +x deploy.sh && ./deploy.sh"
+cd /opt/mythforge-api && git pull && \
+  KIE_KEY=ad6a8f65013f2534d7a4c8a809e714ce sudo -E docker compose up -d --build
 ```
-
-What it does:
-1. Pulls latest code (hard reset, no merge conflicts)
-2. Rebuilds Docker image (installs DejaVu fonts, all AI deps)
-3. Starts gunicorn (2 workers)
-4. **Pre-downloads Whisper model** in background (~39 MB for `tiny`)
-5. Runs smoke test: 5-second tone → video + SRT subtitles
-
-**First deploy after Phase 3:** The build downloads all AI packages (~3 GB total). Allow 5 minutes.
 
 ---
 
-## Step 2 — Render the Hera MP3
+## Primary Run Command
 
 ```bash
-ssh ubuntu@vps-4d43058a.vps.ovh.net \
-  "curl -s -X POST \
-     -F 'mp3=@/opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3' \
-     -F 'title=HERA — The Birth of War' \
-     http://localhost/api/render"
+# Full pipeline (AI video + re-voice) — ~20-40 min for full video
+python3 revoice.py \
+  --audio /opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3 \
+  --title "HERA — The Birth of War" \
+  --kie-key ad6a8f65013f2534d7a4c8a809e714ce \
+  --api-url http://localhost
 ```
 
-Response:
-```json
-{
-  "success": true,
-  "job_id": "abc12345",
-  "url": "http://51.83.154.112/exports/abc12345/output.mp4",
-  "subtitles_url": "http://51.83.154.112/exports/abc12345/subtitles.srt",
-  "duration_s": 253.74,
-  "segments": 87,
-  "phase": "3-ai-pipeline"
-}
+```bash
+# Fast test — AI images only, 5 segments (~3 min)
+python3 revoice.py \
+  --audio /opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3 \
+  --title "HERA — The Birth of War" \
+  --kie-key ad6a8f65013f2534d7a4c8a809e714ce \
+  --api-url http://localhost \
+  --ai-visuals images \
+  --max-ai-segs 5
 ```
-
-Open both URLs in your browser:
-- `output.mp4` → the full video with caption frames
-- `subtitles.srt` → the Whisper transcript (download and review)
-
-**Expected render time: ~50–90 seconds** for 4-minute audio.
 
 ---
 
-## Step 3 — Check job status
+## Defaults (as of Phase 6.2)
+
+| Setting | Value |
+|---------|-------|
+| Voice | `Bill` (very deep American) |
+| AI mode | `video` (Grok I2V, falls back to images) |
+| Ken Burns zoom | 12% dramatic push-in |
+| Pan directions | 8 (varies per segment) |
+| Resolution | 1280×720 |
+| Video codec | libx264, AAC 192k |
+
+---
+
+## Voices Available (Kie.ai whitelist)
+
+Best for mythology narration:
+- `Bill` — very deep ← **default**
+- `George` — British, authoritative
+- `Brian` — American, warm
+- `Daniel` — British, mid
 
 ```bash
-curl http://51.83.154.112/api/status/abc12345
+--voice George   # change voice
+```
+
+---
+
+## AI Visual Modes
+
+```bash
+--ai-visuals video    # AI video clips per segment (~$6 total) ← default
+--ai-visuals images   # AI images per segment (~$0.50 total)
+--ai-visuals none     # free, uses painting backgrounds
 ```
 
 ---
 
 ## Troubleshooting
 
-| Problem | Command |
-|---------|---------|
-| Containers down | `ssh ubuntu@... "cd /opt/mythforge-api && ./deploy.sh"` |
-| Check API logs | `ssh ubuntu@... "cd /opt/mythforge-api && sudo docker compose logs api --tail=30"` |
-| Check nginx logs | `ssh ubuntu@... "cd /opt/mythforge-api && sudo docker compose logs nginx --tail=20"` |
-| Find Hera MP3 | `ssh ubuntu@... "find /opt /home -name 'hera*.mp3' 2>/dev/null"` |
-| Quick render test | `ssh ubuntu@... "curl -s -X POST -F 'mp3=@/tmp/test.mp3' http://localhost/api/render"` |
-| Check Whisper ready | `curl http://51.83.154.112/health` → look for `"whisper_ready": true` |
-| Force model download | `ssh ubuntu@... "sudo docker compose exec api python -c 'from simple_api import get_whisper_model; get_whisper_model()'"`|
+| Problem | Fix |
+|---------|-----|
+| `504 Gateway Time-out` | nginx/gunicorn now set to 3600s — redeploy |
+| `voice is not within range` | Use whitelisted voices only (Bill, George, Brian, Daniel) |
+| `duration not within range` | Grok I2V only accepts "6" or "10" — fixed in code |
+| `daily limit exceeded` | Kie.ai quota hit — wait for reset or use new key |
+| AI Videos: 0 | Usually quota — AI images still generated as fallback |
+| Paintings 404/429 | Wikimedia rate limit — non-issue, AI images are used instead |
 
 ---
 
-## What Phase 3 output looks like
+## Check Logs
 
-Each frame (1280×720):
-```
-┌─────────────────────────────────────────┐
-│              HERA — Episode 1            │  ← gold label, 20px
-│    ────────────────────────────────     │  ← thin gold separator
-│                                          │
-│                                          │
-│     "She rose from the sea of chaos,    │  ← cream white 48px text
-│      eldest daughter of Cronus,          │    word-wrapped, drop shadow
-│      queen before she had a throne."     │
-│                                          │
-│                                          │
-│    ────────────────────────────────     │  ← thin gold accent bar
-│████████████                              │  ← progress bar (gold)
-└─────────────────────────────────────────┘
+```bash
+# All recent activity
+sudo docker logs mythforge-api-api-1 --tail 100
+
+# Errors only
+sudo docker logs mythforge-api-api-1 --tail 100 | grep -i "error\|fail\|warn"
+
+# Video/AI generation
+sudo docker logs mythforge-api-api-1 --tail 100 | grep -i "video\|AI\|kie"
 ```
 
 ---
 
-## Phase 4 roadmap
+## Recent Videos
 
-| Step | What happens |
-|------|-------------|
-| 4a: SDXL (GPU) | Generate one image per scene — visual illustrations |
-| 4b: Scene backgrounds | Replace dark background with AI-generated scene art |
-| 4c: Background music | Mix orchestral layer under narration |
+| Job ID | Voice | AI | Notes |
+|--------|-------|-----|-------|
+| `9dbf9938` | Bill | 3 images | Latest — quota blocked videos |
+| `dd9993ab` | George | 32 images | Phase 6, full AI images |
+| `336a3ca3` | George | 0 (Phase 5) | Paintings + Ken Burns |
 
-Say "go" to start Phase 4.
+Latest: http://51.83.154.112/exports/9dbf9938/output.mp4

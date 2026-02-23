@@ -1,132 +1,52 @@
-# MythForge Video API
+# MythForge Video API — Phase 6.2
 
-**Phase 3 live.**  
-MP3 → Whisper transcription → styled caption frames → HD video (1280×720).  
-CPU-only VPS (8-core, 24 GB RAM).
+**Production-ready AI video generation stack on CPU-only VPS.**
 
----
-
-## Pipeline
-
-```
-MP3 upload
-  │
-  ├─ ffprobe          probe duration
-  ├─ faster-whisper   transcription → timestamped segments + SRT
-  ├─ PIL              one 1280×720 dark-themed caption frame per segment
-  └─ FFmpeg           concat frames + audio → output.mp4 (faststart)
-```
-
-Typical render time for a 4-min audio: **50–90 seconds**.
+MP3 → ElevenLabs (re-voice) → Whisper transcription → AI-generated video clips (Grok Imagine) → Ken Burns frames → FFmpeg → HD MP4
 
 ---
 
-## Live instance
+## Live Instance
 
 | | |
 |-|-|
-| **Health** | `curl http://$VPS_IP/health` |
-| **Render** | `curl -X POST -F "mp3=@song.mp3" http://$VPS_IP/api/render` |
-| **Video** | `http://$VPS_IP/exports/<job_id>/output.mp4` |
-| **Subtitles** | `http://$VPS_IP/exports/<job_id>/subtitles.srt` |
-| **Status** | `curl http://$VPS_IP/api/status/<job_id>` |
+| **VPS** | `ubuntu@vps-4d43058a` / `51.83.154.112` |
+| **Health** | `curl http://51.83.154.112/health` |
+| **Repo** | `https://github.com/andy-arrow/mythforge-api` |
+| **API path** | `/opt/mythforge-api` on VPS |
 
 ---
 
-## Deploy (copy-paste)
+## Current Pipeline (Phase 6.2)
 
-```bash
-# 1. Clone on VPS
-cd /opt
-git clone https://github.com/andy-arrow/mythforge-api.git mythforge-api
-cd mythforge-api
-
-# 2. Configure
-cp .env.example .env
-nano .env            # set VPS_IP and optionally API_KEY
-
-# 3. Deploy + test
-chmod +x deploy.sh
-./deploy.sh
 ```
-
----
-
-## Re-deploy after changes
-
-```bash
-cd /opt/mythforge-api
-./deploy.sh          # pulls latest, rebuilds, waits healthy, smoke-tests
+Original MP3
+  │
+  ├─ [revoice.py step 1] POST /api/transcribe
+  │     └─ faster-whisper (tiny, int8, CPU) → full script text + timestamps
+  │
+  ├─ [revoice.py step 2] POST kie.ai ElevenLabs TTS
+  │     └─ voice: Bill (very deep) — default
+  │     └─ model: elevenlabs/text-to-speech-multilingual-v2
+  │     └─ polls until state=success → audio URL
+  │
+  ├─ [revoice.py step 3] Download ElevenLabs MP3
+  │     └─ /tmp/hera_elevenlabs.mp3
+  │
+  └─ [revoice.py step 4] POST /api/render
+        ├─ Whisper transcribe (again, on new audio)
+        ├─ Phase 6: Kie.ai Grok Imagine T2I — 1 AI image per segment
+        │     └─ cinematic prompts with Greek figure detection
+        │     └─ 16:9 aspect ratio
+        ├─ Phase 6.2: Kie.ai Grok Imagine I2V — AI video clip per image
+        │     └─ duration: "6" or "10" seconds (Grok whitelist)
+        │     └─ cinematic motion prompts (push, parallax, fog)
+        │     └─ falls back to AI image if I2V fails
+        ├─ DRAMATIC Ken Burns effect (12% zoom, 8 pan directions, smoothstep easing)
+        │     └─ 4 keyframes/second for silky smooth animation
+        │     └─ LANCZOS resampling
+        └─ FFmpeg concat → output.mp4 (1280×720, H.264, AAC 192k, faststart)
 ```
-
----
-
-## API reference
-
-### `POST /api/render`
-
-Upload an MP3, receive a video URL.
-
-**Request:** `multipart/form-data`
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `mp3` | yes | MP3 audio file |
-| `title` | no | Episode label shown at top of frames (max 60 chars) |
-
-**Auth:** `X-API-Key: <key>` header (if `API_KEY` is set in `.env`)
-
-```bash
-curl -X POST \
-  -H "X-API-Key: YOUR_KEY" \
-  -F "mp3=@hera_ep1.mp3" \
-  -F "title=HERA — Episode 1" \
-  http://$VPS_IP/api/render
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "job_id": "8c7436df",
-  "url": "http://VPS_IP/exports/8c7436df/output.mp4",
-  "subtitles_url": "http://VPS_IP/exports/8c7436df/subtitles.srt",
-  "duration_s": 253.74,
-  "segments": 87,
-  "phase": "3-ai-pipeline",
-  "message": "Video generated: Whisper transcription + styled caption frames."
-}
-```
-
-### `GET /api/status/<job_id>`
-
-```bash
-curl http://$VPS_IP/api/status/8c7436df
-```
-
-### `GET /health`
-
-Returns `{"status":"healthy","whisper_ready":true,...}` or 503 if degraded.
-
-### `GET /exports/<job_id>/output.mp4`
-### `GET /exports/<job_id>/subtitles.srt`
-
-Served by nginx (MP4 cached 1h, SRT available for download).
-
----
-
-## Environment variables (`.env`)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VPS_IP` | `51.83.154.112` | Public IP shown in URLs |
-| `API_KEY` | _(empty)_ | Optional auth key; empty = open |
-| `FLASK_ENV` | `production` | `production` or `development` |
-| `MAX_UPLOAD_MB` | `500` | Max MP3 upload size |
-| `FFMPEG_TIMEOUT` | `660` | Max render time (seconds) |
-| `JOB_TTL_HOURS` | `48` | Auto-delete jobs older than this |
-| `WHISPER_MODEL` | `tiny` | `tiny` / `base` / `small` / `medium` / `large-v3` |
-| `WHISPER_LANGUAGE` | `en` | ISO 639-1 code, or `auto` for detection |
 
 ---
 
@@ -135,24 +55,145 @@ Served by nginx (MP4 cached 1h, SRT available for download).
 | Service | Image | Role |
 |---------|-------|------|
 | `api` | Python 3.12-slim | gunicorn + Flask + FFmpeg + Whisper + PIL |
-| `nginx` | nginx:alpine | Reverse proxy, `/exports/` static serving |
+| `nginx` | nginx:alpine | Reverse proxy, 1-hour timeout for AI video |
 
 - Port **80** public (nginx). Port **8000** internal only.
-- Shared bind mounts: `./exports` (read-write API, read-only nginx), `./models` (Whisper cache).
-- Resource limits: 6 CPU / 20 GB RAM.
-- Log rotation: 10 MB × 3 files per service.
+- Gunicorn: 2 workers, **3600s timeout** (1 hour for AI video generation)
+- nginx `/api/render`: **3600s** proxy timeout
+- Shared bind mounts: `./exports`, `./models` (Whisper cache persists across deploys)
+- Resources: 6 CPU / 20 GB RAM
 
 ---
 
-## Roadmap
+## Deploy
+
+```bash
+# Full deploy (pull + rebuild + restart)
+cd /opt/mythforge-api && git pull && \
+  KIE_KEY=YOUR_KIE_KEY sudo -E docker compose up -d --build
+```
+
+---
+
+## Primary Command
+
+```bash
+# Full pipeline: ElevenLabs re-voice + AI video generation
+python3 revoice.py \
+  --audio /opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3 \
+  --title "HERA — The Birth of War" \
+  --kie-key YOUR_KIE_KEY \
+  --api-url http://localhost
+
+# With limited AI segments (faster test, ~5 min)
+python3 revoice.py ... --max-ai-segs 5
+
+# AI images only (no video, ~$0.50, fast)
+python3 revoice.py ... --ai-visuals images
+
+# Legacy paintings (free)
+python3 revoice.py ... --ai-visuals none
+```
+
+---
+
+## API Reference
+
+### `POST /api/render`
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `mp3` | yes | MP3 audio file |
+| `title` | no | Episode label (max 60 chars) |
+| `ai_visuals` | no | `"video"` (default), `"images"`, `"none"` |
+| `kie_key` | no | Kie.ai API key (or set KIE_KEY env) |
+| `max_ai_segs` | no | Limit AI generation (0 = all) |
+| `bgm` | no | Background music file |
+| `bgm_volume` | no | BGM level 0.0–1.0 (default 0.15) |
+
+**Response:**
+```json
+{
+  "success": true,
+  "job_id": "9dbf9938",
+  "url": "http://51.83.154.112/exports/9dbf9938/output.mp4",
+  "subtitles_url": "http://51.83.154.112/exports/9dbf9938/subtitles.srt",
+  "duration_s": 196.88,
+  "segments": 51,
+  "ai_images": 3,
+  "ai_videos": 3,
+  "phase": "6.2-ai-video"
+}
+```
+
+### `POST /api/transcribe`
+Returns full text + timestamped segments + SRT URL. No video generated.
+
+### `POST /api/test-kie`
+Tests Kie.ai connection by generating one image. Returns image URL.
+
+### `GET /health`
+Returns status, phase, kie_configured, whisper_ready.
+
+---
+
+## ElevenLabs Voices (Kie.ai whitelist only)
+
+| Voice | Type | Notes |
+|-------|------|-------|
+| `Bill` | Male, very deep | **Default. Best for mythology** |
+| `George` | Male, British deep | Authoritative |
+| `Brian` | Male, American warm | Good narrator |
+| `Daniel` | Male, British mid | Clear |
+| `Callum` | Male, Scottish | Distinctive |
+
+> ⚠️ Community voice IDs (e.g. Matthew Schmitz) do NOT work — Kie.ai whitelist only.
+
+---
+
+## Kie.ai API Notes
+
+| API | Model | Valid params |
+|-----|-------|-------------|
+| Text-to-Image | `grok-imagine/text-to-image` | `aspect_ratio: "16:9"`, `n: 1` |
+| Image-to-Video | `grok-imagine/image-to-video` | `duration: "6"` or `"10"` only, `resolution: "480p"/"720p"`, `mode: "fun"/"normal"/"spicy"` |
+| ElevenLabs TTS | `elevenlabs/text-to-speech-multilingual-v2` | `voice`, `stability`, `similarity_boost`, `style`, `speed` |
+
+> ⚠️ I2V does NOT accept `"5"` for duration — only `"6"` or `"10"`.  
+> ⚠️ External image URLs cannot use `"spicy"` mode.
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KIE_KEY` | `` | Kie.ai API key for AI visuals |
+| `VPS_IP` | `51.83.154.112` | Public IP shown in URLs |
+| `API_KEY` | `` | Optional auth (empty = open) |
+| `FFMPEG_TIMEOUT` | `660` | FFmpeg encode timeout (s) |
+| `JOB_TTL_HOURS` | `48` | Auto-delete jobs older than this |
+| `WHISPER_MODEL` | `tiny` | tiny/base/small/medium/large-v3 |
+
+---
+
+## Phases Complete
 
 | Phase | Feature | Status |
 |-------|---------|--------|
-| 1 | MP3 → black background video | ✅ Done |
-| 2 | AI dependencies installed | ✅ Done |
-| 3a | Whisper transcription → SRT | ✅ Done |
-| 3b | PIL styled caption frames | ✅ Done |
-| 3c | FFmpeg concat + faststart | ✅ Done |
-| 4a | SDXL scene images (GPU) | ⏳ Next |
-| 4b | Per-scene image backgrounds | ⏳ Soon |
-| 4c | Orchestral background layer | ⏳ Later |
+| 1 | MP3 → black background video | ✅ |
+| 2 | AI dependencies installed | ✅ |
+| 3 | Whisper transcription + styled caption frames | ✅ |
+| 4 | Themed scenes (8 themes) + Ken Burns | ✅ |
+| 5 | Public-domain painting backgrounds | ✅ |
+| 6 | AI-generated images per segment (Grok T2I) | ✅ |
+| 6.1 | Cinematic prompt engineering + voice tuning | ✅ |
+| 6.2 | AI video clips per segment (Grok I2V) + dramatic Ken Burns | ✅ |
+
+---
+
+## Known Issues
+
+- Wikimedia paintings: some 404/429 — falls back to gradient (non-issue since Phase 6 uses AI images)
+- Kie.ai daily quota: AI video generation uses significant credits
+- AI Videos blocked by quota → falls back to AI images automatically
