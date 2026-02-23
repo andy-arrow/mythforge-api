@@ -1,19 +1,19 @@
 """
-MythForge Video API — Phase 4.
+MythForge Video API — Phase 5.
 
 Pipeline:
   MP3  →  Whisper transcription
        →  keyword-based scene-theme detection per segment (8 themes)
-       →  numpy-vectorised 1280×720 themed frames + Ken Burns animation
+       →  real public-domain painting backgrounds (Wikimedia Commons) + Ken Burns
        →  optional background music mixing (bgm field)
        →  FFmpeg concat → MP4
 
-New in Phase 4:
-  - 8 scene themes (war / heaven / sea / death / love / fire / earth / default)
-    derived from transcript keywords; unique colour palette + decorations per theme
-  - Ken Burns zoom: 1fps keyframes with 0 → 3% centred crop/resize per speech segment
-  - Optional BGM: POST mp3 + bgm files; narration at full volume, BGM at bgm_volume (0–1)
-  - Numpy-vectorised background gradient: ~20× faster PIL frame generation
+New in Phase 5:
+  - Real painting backgrounds: one public-domain masterwork per theme, downloaded
+    on first use, cached to /app/assets/bg/, graceful gradient fallback on failure
+  - Ken Burns now zooms the actual painting (not a gradient), looking cinematic
+  - Dark vignette overlay ensures caption text is always readable over any image
+  - New POST /api/transcribe endpoint: transcription only, no video rendering
 
 Docker: WORKDIR /app, exports at /app/exports, models at /app/models.
 Run via gunicorn: gunicorn --bind 0.0.0.0:8000 --workers 2 --timeout 720 simple_api:app
@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import textwrap
 import threading
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from functools import wraps
@@ -40,6 +41,7 @@ from flask import Flask, jsonify, request, send_from_directory
 # ---------------------------------------------------------------------------
 EXPORTS_ROOT   = Path(os.environ.get("EXPORTS_ROOT",   "/app/exports"))
 MODELS_DIR     = Path(os.environ.get("MODELS_DIR",     "/app/models"))
+ASSETS_DIR     = Path(os.environ.get("ASSETS_DIR",     "/app/assets"))
 VPS_IP         = os.environ.get("VPS_IP",               "51.83.154.112")
 API_KEY        = os.environ.get("API_KEY",              "")
 MAX_UPLOAD_MB  = int(os.environ.get("MAX_UPLOAD_MB",    500))
@@ -57,6 +59,7 @@ FONT_BOLD    = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 EXPORTS_ROOT.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
+(ASSETS_DIR / "bg").mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Scene themes
@@ -112,6 +115,91 @@ THEME_KEYWORDS: dict[str, set[str]] = {
     "earth":  {"earth","ground","mountain","forest","nature","gaia","soil","stone","rock",
                "harvest","grow","root","tree","land","field","grain"},
 }
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: public-domain painting backgrounds (Wikimedia Commons)
+# One masterwork per theme — downloaded once, cached to ASSETS_DIR/bg/.
+# Graceful fallback to gradient if download/decode fails.
+# ---------------------------------------------------------------------------
+THEME_BG_URLS: dict[str, str] = {
+    # Albrecht Altdorfer – The Battle of Alexander at Issus (1529)
+    "war":     "https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Albrecht_Altdorfer_-_The_Battle_of_Alexander_at_Issus_-_WGA0243.jpg/1280px-Albrecht_Altdorfer_-_The_Battle_of_Alexander_at_Issus_-_WGA0243.jpg",
+    # Jean-Auguste-Dominique Ingres – Jupiter and Thetis (1811)
+    "heaven":  "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4a/Jean_Auguste_Dominique_Ingres%2C_Jupiter_and_Thetis.jpg/856px-Jean_Auguste_Dominique_Ingres%2C_Jupiter_and_Thetis.jpg",
+    # William-Adolphe Bouguereau – The Birth of Venus (1879)
+    "sea":     "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Bouguereau_The_Birth_of_Venus_detail.jpg/1036px-Bouguereau_The_Birth_of_Venus_detail.jpg",
+    # Gustave Moreau – Orpheus (1865) — Orpheus in the Underworld
+    "death":   "https://upload.wikimedia.org/wikipedia/commons/thumb/8/85/Gustave_Moreau_-_Orpheus.jpg/767px-Gustave_Moreau_-_Orpheus.jpg",
+    # William-Adolphe Bouguereau – Cupidon (1875)
+    "love":    "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Bouguereau-Cupidon.jpg/900px-Bouguereau-Cupidon.jpg",
+    # Jacob Jordaens – Prometheus Bound (1640)
+    "fire":    "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Prometheus_chained.jpg/1280px-Prometheus_chained.jpg",
+    # Jean-François Millet – The Gleaners (1857)
+    "earth":   "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Jean-Fran%C3%A7ois_Millet_-_Gleaners_-_Google_Art_Project_2.jpg/1280px-Jean-Fran%C3%A7ois_Millet_-_Gleaners_-_Google_Art_Project_2.jpg",
+    # Raphael – The School of Athens (1511)
+    "default": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/49/%22The_School_of_Athens%22_by_Raffaello_Sanzio_da_Urbino.jpg/1280px-%22The_School_of_Athens%22_by_Raffaello_Sanzio_da_Urbino.jpg",
+}
+
+# In-process image cache — keyed by "theme_WxH" to avoid repeated disk reads
+_bg_cache: dict[str, "PIL.Image.Image"] = {}
+
+
+def get_theme_bg_image(theme: str, width: int = 1280, height: int = 720):
+    """
+    Return a PIL Image (RGB, width×height) for the given theme.
+
+    First call per theme:
+      1. Checks ASSETS_DIR/bg/{theme}.jpg on disk.
+      2. Downloads from THEME_BG_URLS if not present.
+      3. Cover-crops to width×height and caches in _bg_cache.
+    On any failure: silently falls back to the numpy gradient.
+    """
+    from PIL import Image
+
+    cache_key = f"{theme}_{width}x{height}"
+    if cache_key in _bg_cache:
+        return _bg_cache[cache_key]
+
+    bg_dir    = ASSETS_DIR / "bg"
+    disk_path = bg_dir / f"{theme}.jpg"
+
+    # Download if missing
+    if not disk_path.exists():
+        url = THEME_BG_URLS.get(theme, THEME_BG_URLS["default"])
+        try:
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "MythForge/5.0 (public-domain art)"}
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                disk_path.write_bytes(resp.read())
+            logger.info(
+                "Downloaded painting for theme '%s' (%d KB)",
+                theme, disk_path.stat().st_size // 1024,
+            )
+        except Exception as exc:
+            logger.warning("Painting download failed for '%s': %s — gradient fallback", theme, exc)
+            _bg_cache[cache_key] = _make_background(width, height, theme)
+            return _bg_cache[cache_key]
+
+    # Load, cover-resize, center-crop
+    try:
+        img    = Image.open(disk_path).convert("RGB")
+        ir, tr = img.width / img.height, width / height
+        if ir > tr:
+            new_h, new_w = height, int(img.width * height / img.height)
+        else:
+            new_w, new_h = width, int(img.height * width / img.width)
+        img  = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        x, y = (new_w - width) // 2, (new_h - height) // 2
+        img  = img.crop((x, y, x + width, y + height))
+        _bg_cache[cache_key] = img
+        return img
+    except Exception as exc:
+        logger.warning("Painting load failed for '%s': %s — gradient fallback", theme, exc)
+        disk_path.unlink(missing_ok=True)   # remove corrupt file so next call retries
+        _bg_cache[cache_key] = _make_background(width, height, theme)
+        return _bg_cache[cache_key]
 
 
 def detect_theme(text: str) -> str:
@@ -379,63 +467,25 @@ def make_frame(
     """
     Render one 1280×720 caption frame.
 
-    theme: one of SCENE_THEMES keys — drives colour palette + decoration
-    zoom:  0.0 (no zoom) → 1.0 (3% centred push-in crop) for Ken Burns effect
+    Phase 5: uses a real public-domain painting as background.
+    Ken Burns is applied to the painting BEFORE drawing text, so the
+    zoom effect animates the artwork, not the caption.
+    A dark vignette overlay is composited over the image to ensure
+    caption text is always legible regardless of the painting's content.
+
+    theme: one of SCENE_THEMES keys — drives colour palette + UI chrome
+    zoom:  0.0 (no zoom) → 1.0 (3% centred push-in) for Ken Burns
     """
     from PIL import Image, ImageDraw
 
     t_cfg = SCENE_THEMES.get(theme, SCENE_THEMES["default"])
 
-    img  = _make_background(width, height, theme)
-    draw = ImageDraw.Draw(img)
-    _draw_scene_deco(draw, theme, width, height)
+    # 1. Background painting (cover-cropped to 1280×720, cached in memory)
+    img = get_theme_bg_image(theme, width, height).copy()
 
-    font_label = _font(FONT_REGULAR, 20)
-    font_main  = _font(FONT_BOLD,    48)
-
-    # Branding / episode title (top centre, theme-coloured)
-    label = title.upper() if title else "MYTHFORGE"
-    lb    = draw.textbbox((0, 0), label, font=font_label)
-    lw    = lb[2] - lb[0]
-    draw.text(((width - lw) // 2, 36), label, fill=t_cfg["title"], font=font_label)
-
-    # Thin accent separator beneath title
-    draw.rectangle([(width // 4, 68), (3 * width // 4, 70)], fill=t_cfg["accent"])
-
-    if text:
-        wrapped = textwrap.fill(text, width=42)
-        mb = draw.multiline_textbbox(
-            (0, 0), wrapped, font=font_main, align="center", spacing=16
-        )
-        tw, th = mb[2] - mb[0], mb[3] - mb[1]
-        x = (width  - tw) // 2
-        y = (height - th) // 2 + 8   # slight downward offset from geometric centre
-
-        # Drop shadow (2px offset)
-        draw.multiline_text(
-            (x + 2, y + 2), wrapped,
-            fill=(2, 2, 8), font=font_main, align="center", spacing=16,
-        )
-        # Main caption text
-        draw.multiline_text(
-            (x, y), wrapped,
-            fill=t_cfg["text"], font=font_main, align="center", spacing=16,
-        )
-
-    # Bottom accent bar
-    draw.rectangle(
-        [(width // 4, height - 44), (3 * width // 4, height - 41)],
-        fill=t_cfg["accent"],
-    )
-
-    # Progress bar (full-width, 3px, theme title colour)
-    if total_frames > 0:
-        bar_w = int(width * frame_idx / total_frames)
-        draw.rectangle([(0, height - 4), (bar_w, height - 1)], fill=t_cfg["title"])
-
-    # Ken Burns: centred crop → resize to original dimensions (max 3% push-in)
+    # 2. Ken Burns: zoom into the painting before compositing text
     if zoom > 0.001:
-        z      = zoom * 0.03
+        z      = zoom * 0.03          # max 3% push-in
         crop_w = int(width  * (1.0 - z))
         crop_h = int(height * (1.0 - z))
         x0     = (width  - crop_w) // 2
@@ -443,6 +493,54 @@ def make_frame(
         img    = img.crop((x0, y0, x0 + crop_w, y0 + crop_h)).resize(
             (width, height), Image.Resampling.BILINEAR
         )
+
+    # 3. Dark vignette overlay — ensures text legibility on any painting
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    ov      = ImageDraw.Draw(overlay)
+    ov.rectangle([(0, 0), (width, height)],                     fill=(0, 0, 0, 70))   # global dim
+    ov.rectangle([(0, int(height * 0.25)), (width, int(height * 0.82))],
+                 fill=(0, 0, 0, 110))                                                   # text band
+    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+    draw = ImageDraw.Draw(img)
+
+    font_label = _font(FONT_REGULAR, 20)
+    font_main  = _font(FONT_BOLD,    48)
+
+    # 4. Episode title bar (top centre)
+    label = title.upper() if title else "MYTHFORGE"
+    lb    = draw.textbbox((0, 0), label, font=font_label)
+    lw    = lb[2] - lb[0]
+    draw.text(((width - lw) // 2, 36), label, fill=t_cfg["title"], font=font_label)
+    draw.rectangle([(width // 4, 68), (3 * width // 4, 70)], fill=t_cfg["accent"])
+
+    # 5. Caption text (centred, drop-shadowed)
+    if text:
+        wrapped = textwrap.fill(text, width=42)
+        mb      = draw.multiline_textbbox(
+            (0, 0), wrapped, font=font_main, align="center", spacing=16
+        )
+        tw, th = mb[2] - mb[0], mb[3] - mb[1]
+        x = (width  - tw) // 2
+        y = (height - th) // 2 + 8
+
+        draw.multiline_text(
+            (x + 2, y + 2), wrapped,
+            fill=(0, 0, 0), font=font_main, align="center", spacing=16,
+        )
+        draw.multiline_text(
+            (x, y), wrapped,
+            fill=t_cfg["text"], font=font_main, align="center", spacing=16,
+        )
+
+    # 6. Bottom accent bar + progress bar
+    draw.rectangle(
+        [(width // 4, height - 44), (3 * width // 4, height - 41)],
+        fill=t_cfg["accent"],
+    )
+    if total_frames > 0:
+        bar_w = int(width * frame_idx / total_frames)
+        draw.rectangle([(0, height - 4), (bar_w, height - 1)], fill=t_cfg["title"])
 
     return img
 
@@ -610,14 +708,16 @@ def health():
     except Exception:
         ffmpeg_ok = False
 
+    cached_themes = [p.stem for p in (ASSETS_DIR / "bg").glob("*.jpg")]
     status = "healthy" if ffmpeg_ok else "degraded"
     return jsonify({
-        "status":        status,
-        "phase":         "4-dynamic-scenes",
-        "ffmpeg":        ffmpeg_ok,
-        "whisper_model": WHISPER_MODEL,
-        "whisper_ready": _whisper_model is not None,
-        "exports":       str(EXPORTS_ROOT),
+        "status":          status,
+        "phase":           "5-cinematic-paintings",
+        "ffmpeg":          ffmpeg_ok,
+        "whisper_model":   WHISPER_MODEL,
+        "whisper_ready":   _whisper_model is not None,
+        "exports":         str(EXPORTS_ROOT),
+        "cached_paintings": cached_themes,
     }), 200 if ffmpeg_ok else 503
 
 
@@ -739,9 +839,59 @@ def render():
         "duration_s":    round(duration, 2),
         "segments":      len(segments),
         "themes":        theme_counts,
-        "phase":         "4-dynamic-scenes",
-        "message":       "Video generated: themed scenes + Ken Burns + optional BGM.",
+        "phase":         "5-cinematic-paintings",
+        "message":       "Video generated: real painting backgrounds + Ken Burns + optional BGM.",
     })
+
+
+@app.route("/api/transcribe", methods=["POST"])
+@require_api_key
+def transcribe_only():
+    """
+    Transcribe an uploaded MP3 and return segments as JSON.
+    Much faster than /api/render — no frame generation or video encoding.
+
+    Required form field:
+      mp3   — narration audio (MP3)
+
+    Returns:
+      full_text    — plain script text (all segments joined)
+      segments     — list of {start, end, text} dicts
+      srt_url      — hosted SRT file URL
+      duration_s   — audio duration in seconds
+    """
+    if "mp3" not in request.files:
+        return jsonify({"error": "No MP3 file (field name: mp3)"}), 400
+    mp3_file = request.files["mp3"]
+    if not mp3_file.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    job_id  = str(uuid.uuid4())[:8]
+    job_dir = EXPORTS_ROOT / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    mp3_path = job_dir / "input.mp3"
+    srt_path = job_dir / "subtitles.srt"
+
+    try:
+        mp3_file.save(str(mp3_path))
+        duration = get_duration(mp3_path)
+        segments = transcribe(mp3_path)
+        write_srt(segments, srt_path)
+        full_text = " ".join(seg["text"] for seg in segments)
+        return jsonify({
+            "success":    True,
+            "job_id":     job_id,
+            "duration_s": round(duration, 2),
+            "full_text":  full_text,
+            "segments":   segments,
+            "srt_url":    f"http://{VPS_IP}/exports/{job_id}/subtitles.srt",
+        })
+    except Exception as exc:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        logger.exception("Transcription error: %s", exc)
+        return jsonify({"error": "Transcription failed"}), 500
+    finally:
+        mp3_path.unlink(missing_ok=True)
 
 
 @app.route("/api/status/<job_id>", methods=["GET"])
