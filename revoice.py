@@ -28,16 +28,17 @@ Usage
       --kie-key YOUR_KIE_API_KEY \\
       --api-url http://localhost
 
-ElevenLabs voices (via Kie.ai):
-  Preset names:
+ElevenLabs voices (Kie.ai whitelist only):
+  DEEP MALE (recommended for mythology):
+    Bill     — American, VERY deep, dramatic  ← DEFAULT
     George   — British, deep, authoritative
     Brian    — American, warm narrator
-    Bill     — American, very deep
     Daniel   — British, mid-range
+    Callum   — Scottish, clear
   
-  Community voice IDs (for epic mythology):
-    e0K1gavG8dJdPZiwQ7Np  — Matthew Schmitz: Gravel, Deep Anti-Hero ← RECOMMENDED
-    dWlo9A8YyLspmlvHk1dB  — Matthew Schmitz: Late Night Mystic
+  OTHER:
+    Rachel, Aria, Sarah, Laura, Charlotte, Alice, Matilda, Jessica, Lily
+    Roger, Charlie, River, Liam, Will, Eric, Chris
 
 Cost estimates:
   - ElevenLabs TTS: ~$0.01 per 1000 chars
@@ -355,8 +356,8 @@ def main() -> None:
         help="Path to the original narration MP3 (e.g. hera_full_audio_combined.mp3)",
     )
     parser.add_argument("--title",      default="HERA — The Birth of War")
-    parser.add_argument("--voice",      default="e0K1gavG8dJdPZiwQ7Np",
-                        help="ElevenLabs voice name or ID (e0K1gavG8dJdPZiwQ7Np = Matthew Schmitz)")
+    parser.add_argument("--voice",      default="Bill",
+                        help="ElevenLabs voice: Bill (very deep), George (British), Brian (warm), Daniel")
     parser.add_argument("--kie-key",    required=True, help="kie.ai API key")
     parser.add_argument("--api-url",    default="http://51.83.154.112")
     parser.add_argument("--bgm-volume", type=float, default=0.15)
