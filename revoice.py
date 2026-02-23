@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 revoice.py — Re-voice a narration with ElevenLabs (via kie.ai), then render
-             a Phase 6 MythForge video with AI-generated or painting backgrounds.
+             a Phase 6 MythForge video with AI-generated backgrounds.
 
 Workflow
 --------
@@ -9,33 +9,37 @@ Workflow
   2. POST kie.ai ElevenLabs TTS  →  get a task ID
   3. Poll GET  kie.ai /api/v1/jobs/recordInfo  →  wait for audio URL
   4. Download the ElevenLabs MP3 to /tmp/
-  5. POST /api/render with the new MP3  →  Phase 6 video (optional AI visuals)
+  5. POST /api/render with the new MP3  →  Phase 6 video with AI visuals
 
 Usage
 -----
-  # Phase 5 (painting backgrounds — default, free):
+  # Full AI pipeline (recommended):
   python3 revoice.py \\
       --audio  /opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3 \\
       --title  "HERA — The Birth of War" \\
-      --voice  George \\
       --kie-key YOUR_KIE_API_KEY \\
-      --api-url http://51.83.154.112
-
-  # Phase 6 with AI-generated images (~$0.50/video):
-  python3 revoice.py \\
-      --audio  /opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3 \\
-      --title  "HERA — The Birth of War" \\
-      --voice  George \\
-      --kie-key YOUR_KIE_API_KEY \\
-      --api-url http://51.83.154.112 \\
+      --api-url http://localhost \\
       --ai-visuals images
 
-ElevenLabs voices (male, recommended for mythology):
-  George   — British, deep, authoritative  ← default
-  Daniel   — British, mid-range
-  Brian    — American, warm
-  Bill     — American, very deep
-  Charlie  — Australian, clear
+  # Legacy Phase 5 (painting backgrounds, free):
+  python3 revoice.py \\
+      --audio  /opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3 \\
+      --title  "HERA — The Birth of War" \\
+      --kie-key YOUR_KIE_API_KEY \\
+      --api-url http://localhost
+
+ElevenLabs voices (via Kie.ai):
+  Matthew Schmitz  — cinematic, epic narrator voice  ← RECOMMENDED DEFAULT
+  George           — British, deep, authoritative
+  Daniel           — British, mid-range
+  Brian            — American, warm
+  Bill             — American, very deep
+  Charlie          — Australian, clear
+
+Cost estimates:
+  - ElevenLabs TTS: ~$0.01 per 1000 chars
+  - AI images:      ~$0.01 per image (~$0.50 per video)
+  - AI video clips: ~$0.18 per clip (~$6 per video)
 """
 
 import argparse
@@ -348,8 +352,8 @@ def main() -> None:
         help="Path to the original narration MP3 (e.g. hera_full_audio_combined.mp3)",
     )
     parser.add_argument("--title",      default="HERA — The Birth of War")
-    parser.add_argument("--voice",      default="George",
-                        help="ElevenLabs voice name (George / Daniel / Brian / Bill)")
+    parser.add_argument("--voice",      default="Matthew Schmitz",
+                        help="ElevenLabs voice name (Matthew Schmitz / George / Daniel / Brian / Bill)")
     parser.add_argument("--kie-key",    required=True, help="kie.ai API key")
     parser.add_argument("--api-url",    default="http://51.83.154.112")
     parser.add_argument("--bgm-volume", type=float, default=0.15)
@@ -357,10 +361,10 @@ def main() -> None:
                         help="Where to save the downloaded ElevenLabs MP3")
     parser.add_argument("--check-task", metavar="TASK_ID",
                         help="Debug: check status of an existing Kie.ai task and exit")
-    # Phase 6 options
+    # Phase 6 options — AI visuals enabled by default
     parser.add_argument("--ai-visuals", choices=["none", "images", "video"],
-                        default="none",
-                        help="Phase 6: 'none' (paintings), 'images' (~$0.50), 'video' (~$6)")
+                        default="images",
+                        help="'images' (default, ~$0.50), 'video' (~$6), 'none' (paintings only)")
     parser.add_argument("--max-ai-segs", type=int, default=0,
                         help="Limit AI generation to N segments (0 = unlimited)")
     args = parser.parse_args()

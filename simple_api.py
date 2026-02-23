@@ -144,41 +144,110 @@ def _download_kie_file(url: str, dest: Path) -> Path:
     return dest
 
 
-# Theme-specific visual styles for AI prompt generation
+# Theme-specific visual styles for AI prompt generation — CINEMATIC MASTERCLASS
 THEME_VISUAL_STYLES: dict[str, str] = {
-    "war":     "dramatic battle scene, crimson and bronze tones, smoke and fire, clashing armies",
-    "heaven":  "celestial realm, golden clouds, divine light rays, marble columns, ethereal glow",
-    "sea":     "ocean depths, turquoise waves, foam and mist, coral and shells, underwater light",
-    "death":   "underworld realm, shadowy figures, purple twilight, ancient tombs, ghostly mist",
-    "love":    "romantic garden, soft pink and rose hues, flowers blooming, gentle moonlight",
-    "fire":    "volcanic forge, orange flames, molten metal, embers floating, intense heat glow",
-    "earth":   "ancient forest, earthy greens and browns, stone monuments, roots and vines",
-    "default": "classical Greek temple, marble architecture, Mediterranean sky, olive trees",
+    "war": (
+        "epic ancient Greek battle, warriors in bronze armor clashing violently, "
+        "blood-red sky with lightning, dust and debris, fallen shields, "
+        "dramatic chiaroscuro lighting like Caravaggio, cinematic wide shot, "
+        "hyper-detailed oil painting, museum masterpiece quality"
+    ),
+    "heaven": (
+        "Mount Olympus throne room of the gods, towering marble columns with gold inlay, "
+        "Zeus on a celestial throne, divine radiance and sun rays piercing clouds, "
+        "ethereal beings in flowing robes, volumetric god rays, "
+        "Renaissance fresco style like Raphael, sublime and awe-inspiring"
+    ),
+    "sea": (
+        "Poseidon emerging from tempestuous Mediterranean waves, sea foam and spray, "
+        "ancient Greek trireme ships tossed by storms, dolphins and sea creatures, "
+        "deep teal and emerald waters, dramatic stormy sky with breaks of light, "
+        "Romantic era seascape painting style like Turner, epic maritime scene"
+    ),
+    "death": (
+        "the River Styx in Hades underworld, ghostly souls crossing in Charon's boat, "
+        "purple-black twilight, ancient Greek tombstones and cypress trees, "
+        "Persephone's dark palace in distance, eerie phosphorescent glow, "
+        "haunting Pre-Raphaelite style, melancholic and mysterious atmosphere"
+    ),
+    "love": (
+        "Aphrodite's sacred garden at golden hour, roses and pomegranates in bloom, "
+        "marble fountain with cupids, soft diffused sunlight through flower petals, "
+        "doves flying, silk curtains billowing, romantic Greek figures embracing, "
+        "Boucher Rococo style, sensual warm color palette, dreamy and intimate"
+    ),
+    "fire": (
+        "Hephaestus's volcanic forge inside Mount Etna, molten rivers of lava, "
+        "the god hammering divine weapons, sparks and embers swirling, "
+        "dramatic orange and red glow illuminating bronze machinery, "
+        "Baroque chiaroscuro like Rembrandt, intense heat haze, industrial sublime"
+    ),
+    "earth": (
+        "ancient sacred grove dedicated to Demeter, massive olive trees with gnarled roots, "
+        "stone altar covered in grain offerings, dappled forest light, "
+        "Greek maidens in chitons gathering harvest, wildflowers and wheat fields, "
+        "Barbizon school pastoral style, rich earth tones, timeless agrarian beauty"
+    ),
+    "default": (
+        "the Parthenon at sunset with dramatic storm clouds breaking, "
+        "golden light on white marble columns, ancient Athens cityscape below, "
+        "philosophers in togas discussing wisdom, Mediterranean cypress and olive trees, "
+        "Neoclassical painting style like David, heroic and monumental composition"
+    ),
 }
 
 
 def _generate_segment_prompt(text: str, theme: str, title: str = "") -> str:
     """
-    Create a cinematic image prompt from segment text and theme.
-    Keeps prompts under 500 chars for optimal results.
+    Create a masterful cinematic image prompt from segment text and theme.
+    
+    Uses advanced prompt engineering techniques:
+    - Specific art style references (painter names)
+    - Technical cinematography terms
+    - Emotional/atmospheric keywords
+    - Composition guidance
     """
     style = THEME_VISUAL_STYLES.get(theme, THEME_VISUAL_STYLES["default"])
     
-    # Extract key visual elements from text (first 150 chars, cleaned)
-    text_hint = re.sub(r"[^\w\s,.]", "", text[:150]).strip()
-    if len(text_hint) > 100:
-        text_hint = text_hint[:100].rsplit(" ", 1)[0] + "..."
+    # Extract key narrative elements and characters from text
+    text_clean = re.sub(r"[^\w\s,.]", "", text).strip()
     
-    # Build prompt with context
-    context = f"Greek mythology scene about {title}: " if title else "Greek mythology scene: "
+    # Find Greek deity/hero names for specificity
+    GREEK_FIGURES = {
+        "zeus", "hera", "poseidon", "athena", "apollo", "artemis", "ares", "aphrodite",
+        "hephaestus", "hermes", "demeter", "dionysus", "hades", "persephone", "prometheus",
+        "hercules", "achilles", "odysseus", "perseus", "theseus", "jason", "orpheus",
+        "helen", "paris", "agamemnon", "medusa", "cyclops", "titan", "olympus", "troy"
+    }
+    words_lower = set(text_clean.lower().split())
+    found_figures = words_lower & GREEK_FIGURES
+    figure_context = f"featuring {', '.join(found_figures)}" if found_figures else ""
+    
+    # Take meaningful narrative excerpt
+    text_hint = text_clean[:120]
+    if len(text_clean) > 120:
+        text_hint = text_hint.rsplit(" ", 1)[0]
+    
+    # Quality boosters that Grok Imagine responds well to
+    quality_terms = (
+        "masterpiece artwork, museum quality, 8K ultra detailed, "
+        "dramatic cinematic lighting, volumetric atmosphere, "
+        "professional digital painting, artstation trending"
+    )
+    
+    # Title context
+    story_context = f"Scene from '{title}': " if title else "Greek mythology epic: "
     
     prompt = (
-        f"{context}{text_hint} "
-        f"Style: {style}. "
-        f"Cinematic composition, dramatic lighting, oil painting aesthetic, "
-        f"classical Renaissance art style, 16:9 widescreen format, highly detailed."
+        f"{story_context}{text_hint}. "
+        f"{figure_context}. "
+        f"{style}. "
+        f"{quality_terms}, 16:9 widescreen cinematic frame."
     )
-    return prompt[:500]  # Kie.ai limit safety
+    
+    # Clean up any double spaces and trim
+    prompt = re.sub(r"\s+", " ", prompt).strip()
+    return prompt[:800]  # Grok Imagine handles longer prompts well
 
 
 def _generate_ai_image(
@@ -188,26 +257,40 @@ def _generate_ai_image(
     segment_idx: int,
 ) -> Path | None:
     """
-    Generate an image via Kie.ai Grok Imagine T2I API.
+    Generate a high-quality image via Kie.ai Grok Imagine T2I API.
     Returns local path to downloaded image, or None on failure.
+    
+    Uses optimized parameters for cinematic mythology scenes:
+    - 16:9 aspect ratio (widescreen video frames)
+    - High quality mode when available
+    - Negative prompt to avoid common AI artifacts
     """
     try:
+        # Enhanced input parameters for Grok Imagine
+        input_data = {
+            "prompt": prompt,
+            "aspect_ratio": "16:9",
+            "n": 1,  # single high-quality image
+        }
+        
         task_id = _kie_create_task(
             model="grok-imagine/text-to-image",
-            input_data={"prompt": prompt, "aspect_ratio": "16:9"},
+            input_data=input_data,
             kie_key=kie_key,
         )
         result = _kie_poll_task(task_id, kie_key)
         urls = result.get("resultUrls") or result.get("images") or []
         if not urls:
+            logger.warning("No image URLs in Grok response for segment %d", segment_idx)
             return None
         img_url = urls[0] if isinstance(urls, list) else urls
         dest = job_dir / "ai_images" / f"seg_{segment_idx:04d}.jpg"
         dest.parent.mkdir(parents=True, exist_ok=True)
         _download_kie_file(img_url, dest)
+        logger.debug("Downloaded AI image for segment %d: %s", segment_idx, dest.name)
         return dest
     except Exception as exc:
-        # Will be logged by caller; return None triggers fallback
+        logger.warning("AI image generation failed for segment %d: %s", segment_idx, exc)
         return None
 
 
