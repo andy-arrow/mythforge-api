@@ -327,7 +327,7 @@ def render_video(
     
     cmd.append(f"{api_url}/api/render")
     
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)  # longer for AI
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)  # 1 hour for AI video
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
