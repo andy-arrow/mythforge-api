@@ -1,18 +1,18 @@
-# Web API
+# Core API
 Flask==3.0.3
-requests>=2.31.0
+Werkzeug==3.0.3
 
-# Audio / video
+# Audio
 ffmpeg-python==0.2.0
-pydub>=0.25.1
-srt>=3.5.3
+pydub==0.25.1
+srt==3.5.3
 
-# Image / video processing
-opencv-python-headless>=4.9.0
-Pillow>=10.0.0
+# Image / video (Phase 3)
+opencv-python-headless==4.9.0.80
+Pillow==10.3.0
 
-# Speech & ML (CPU-friendly; optional for Phase 2)
-faster-whisper>=1.0.0
-diffusers>=0.25.0
-transformers>=4.36.0
-accelerate>=0.25.0
+# ML / AI (Phase 3 — installed now, wired in next)
+faster-whisper==1.0.3
+diffusers==0.27.2
+transformers==4.40.2
+accelerate==0.30.0

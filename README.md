@@ -1,125 +1,125 @@
 # MythForge Video API
 
-Production-ready Docker stack: **MP3 → HD video** (black 1280x720, synced audio). CPU-only, no GPU.
+Production-ready Docker stack: **MP3 → HD video** (1280×720, synced audio).  
+CPU-only VPS (8-core, 24 GB RAM). Phase 3-ready: Whisper + SDXL.
 
 ---
 
-## Production (live)
+## Live instance
 
-**Base URL:** `http://51.83.154.112`
-
-| Check | Command |
-|-------|---------|
-| Health | `curl http://51.83.154.112/health` |
-| Render | `curl -s -X POST -F "mp3=@song.mp3" http://51.83.154.112/api/render \| jq -r '.url'` |
-| Video | `http://51.83.154.112/exports/{job_id}/output.mp4` |
-
-Upload any MP3 → get `job_id` → video ready in ~8s. Share the exports URL.
-
-**Phase 2:** API returns `ai_status`, `phase: "2-ai-installed"` in health. Full whisper+diffusers integration in progress.
+| | |
+|-|-|
+| **Health** | `curl http://$VPS_IP/health` |
+| **Render** | `curl -X POST -F "mp3=@song.mp3" http://$VPS_IP/api/render` |
+| **Video** | `http://$VPS_IP/exports/<job_id>/output.mp4` |
+| **Status** | `curl http://$VPS_IP/api/status/<job_id>` |
 
 ---
 
-## Phase 2: AI upgrade (3-min build)
-
-**As `ubuntu` user use `sudo` for docker** (or run `sudo usermod -aG docker ubuntu` once, then log out and back in).
+## Deploy (copy-paste)
 
 ```bash
-cd /opt/mythforge-api
-git pull
-chmod +x phase2-upgrade.sh && ./phase2-upgrade.sh
-```
-
-Or manually:
-
-```bash
-cd /opt/mythforge-api
-
-# 1. Check current dependencies
-sudo docker exec $(sudo docker compose ps -q api) pip list | grep -E "(whisper|diffusers|torch)"
-
-# 2. Rebuild with AI deps (requirements.txt already includes faster-whisper, diffusers, etc.)
-sudo docker compose down
-sudo docker compose up -d --build
-
-sleep 10
-sudo docker compose ps
-sudo docker compose logs api --tail=10
-
-# 3. Verify AI packages loaded
-chmod +x verify-ai.sh && ./verify-ai.sh
-```
-
-**Test with Hera MP3:**
-
-```bash
-curl -X POST -F "mp3=@/path/to/hera_full_audio_combined.mp3" http://51.83.154.112/api/render | jq
-# Monitor: watch -n 5 "ls -la /opt/mythforge-api/exports/<JOB_ID>/"
-```
-
-**Success criteria:** `docker compose ps` healthy, `verify-ai.sh` prints Whisper/Diffusers/PyTorch versions, API accepts MP3 and returns `job_id` + full URL.
-
----
-
-## Alfred deploy (copy-paste)
-
-**One-time deploy + build + test from your machine (replace `YOUR_VPS_IP`):**
-
-```bash
-ssh root@YOUR_VPS_IP "cd /opt && rm -rf mythforge-api && git clone https://github.com/andy-arrow/mythforge-api.git mythforge-api && cd /opt/mythforge-api && mkdir -p exports && docker compose up -d --build && sleep 15 && docker compose ps && chmod +x deploy-and-test.sh && ./deploy-and-test.sh"
-```
-
-**Or on the VPS only:**
-
-```bash
-cd /opt && git clone https://github.com/andy-arrow/mythforge-api.git mythforge-api
+# 1. Clone on VPS
+cd /opt
+git clone https://github.com/andy-arrow/mythforge-api.git mythforge-api
 cd mythforge-api
-mkdir -p exports && chown ubuntu:ubuntu exports   # or chown to your app user; skip if root-only
-# As ubuntu user: use sudo for docker (or add to group: sudo usermod -aG docker ubuntu, then log out/in)
-sudo docker compose up -d
-```
 
-Deploy in ~60 seconds. No terminal expertise required.
+# 2. Configure (copy and edit)
+cp .env.example .env
+nano .env            # set VPS_IP and optionally API_KEY
 
----
-
-## Test (after deploy)
-
-**Option A – run the script (creates tone, renders, prints public URL):**
-
-```bash
-cd /opt/mythforge-api && chmod +x deploy-and-test.sh && ./deploy-and-test.sh
-```
-
-**Option B – manual steps:**
-
-```bash
-# Create a 10s test tone inside the API container (writes to shared ./exports)
-docker compose exec api ffmpeg -f lavfi -i "sine=frequency=440:duration=10" -c:a libmp3lame -y /app/exports/test.mp3
-
-# Render (must run inside container so /app/exports/test.mp3 is available)
-docker compose exec api curl -s -X POST -F "mp3=@/app/exports/test.mp3" http://localhost:8000/api/render
-
-# Response: {"job_id":"xxxxxxxx","url":"/exports/xxxxxxxx/output.mp4"}
-# Public URL: http://YOUR_VPS_IP/exports/xxxxxxxx/output.mp4
+# 3. Deploy + test
+chmod +x deploy.sh
+./deploy.sh
 ```
 
 ---
 
-## Endpoints
+## Re-deploy after changes
 
-| URL | Method | Description |
-|-----|--------|-------------|
-| `http://VPS_IP/health` | GET | Health check (via API) |
-| `http://VPS_IP/api/render` | POST | Upload `mp3` file → returns `job_id` and `url` |
-| `http://VPS_IP/exports/<job_id>/output.mp4` | GET | Download rendered video |
+```bash
+cd /opt/mythforge-api
+./deploy.sh          # pulls latest, rebuilds, smoke-tests
+```
+
+---
+
+## API reference
+
+### `POST /api/render`
+Upload an MP3, receive a video URL.
+
+**Request:** `multipart/form-data`, field `mp3`  
+**Auth:** `X-API-Key: <key>` header (if `API_KEY` is set in `.env`)
+
+```bash
+curl -X POST \
+  -H "X-API-Key: YOUR_KEY" \
+  -F "mp3=@episode1.mp3" \
+  http://$VPS_IP/api/render
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "job_id": "8c7436df",
+  "url": "http://VPS_IP/exports/8c7436df/output.mp4",
+  "duration_s": 312.4,
+  "phase": "2-ai-installed",
+  "message": "Video created. AI pipeline (Whisper + SDXL) coming next."
+}
+```
+
+### `GET /api/status/<job_id>`
+Check job state.
+
+```bash
+curl http://$VPS_IP/api/status/8c7436df
+```
+
+### `GET /health`
+Returns `{"status":"healthy","ffmpeg":true,...}` or 503 if degraded.
+
+### `GET /exports/<job_id>/output.mp4`
+Download or stream the rendered video (served by nginx, cached 1h).
+
+---
+
+## Environment variables (`.env`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VPS_IP` | `51.83.154.112` | Public IP of VPS |
+| `API_KEY` | _(empty)_ | Optional API key; empty = open |
+| `FLASK_ENV` | `production` | `production` or `development` |
+| `MAX_UPLOAD_MB` | `500` | Max MP3 upload size |
+| `FFMPEG_TIMEOUT` | `600` | Max render time (seconds) |
+| `JOB_TTL_HOURS` | `48` | Auto-delete jobs older than this |
 
 ---
 
 ## Stack
 
-- **API**: Flask + ffmpeg-python, Python 3.12-slim, port 8000
-- **Nginx**: Alpine, port 80; serves `/exports/` (read-only) and proxies `/api/` to API; `client_max_body_size 500M`
-- **Exports**: Host `./exports` → API `/app/exports`, Nginx `/exports:ro` (shared bind mount)
+| Service | Image | Role |
+|---------|-------|------|
+| `api` | Python 3.12-slim | Flask API + FFmpeg |
+| `nginx` | nginx:alpine | Reverse proxy, `/exports/` static serving |
 
-CPU-optimized for 8-core, 24GB RAM VPS. Phase 2–ready (e.g. add faster-whisper in Dockerfile).
+- Port **80** public (nginx). Port **8000** internal only (not exposed to host).
+- Shared bind mount: `./exports` → `/app/exports` (API) and `/exports:ro` (nginx).
+- Resource limits: 6 CPU / 20 GB RAM for API.
+- Log rotation: 10 MB × 3 files per service.
+
+---
+
+## Roadmap
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| 1 | MP3 → black background video | ✅ Done |
+| 2 | AI dependencies installed | ✅ Done |
+| 3a | Whisper transcription | ⏳ Next |
+| 3b | SDXL image generation | ⏳ Soon |
+| 3c | Captions (burn subtitles) | ⏳ Soon |
+| 3d | Orchestral background music | ⏳ Later |

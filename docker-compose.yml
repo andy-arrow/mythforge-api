@@ -1,25 +1,49 @@
 services:
   api:
     build: .
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"             # internal only — not exposed to host
+    environment:
+      - VPS_IP=${VPS_IP:-51.83.154.112}
+      - API_KEY=${API_KEY:-}
+      - FLASK_ENV=${FLASK_ENV:-production}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-500}
     volumes:
-      - ./exports:/app/exports  # Host ./exports -> container /app/exports
+      - ./exports:/app/exports
+    deploy:
+      resources:
+        limits:
+          cpus: "6"
+          memory: 20G
+        reservations:
+          cpus: "1"
+          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
+      start_period: 15s
       retries: 3
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   nginx:
     image: nginx:alpine
     ports:
       - "80:80"
     volumes:
-      - ./exports:/exports:ro  # Read-only for nginx
+      - ./exports:/exports:ro
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

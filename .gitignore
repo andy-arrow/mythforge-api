@@ -1,9 +1,10 @@
-# Local/test
+# Local/test and secrets
 exports/
 *.mp3
 *.mp4
 .env
 .env.local
+logs/
 
 # Python
 __pycache__/
