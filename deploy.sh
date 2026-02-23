@@ -82,9 +82,11 @@ RESP=$(curl -s -X POST \
 echo "$RESP"
 
 JOB_ID=$(echo "$RESP" | grep -o '"job_id":"[^"]*"' | cut -d'"' -f4)
+THEMES=$(echo "$RESP" | grep -o '"themes":{[^}]*}' || true)
 if [ -n "$JOB_ID" ] && [ "$JOB_ID" != "null" ]; then
   echo "Video:     http://${VPS_IP:-51.83.154.112}/exports/${JOB_ID}/output.mp4"
   echo "Subtitles: http://${VPS_IP:-51.83.154.112}/exports/${JOB_ID}/subtitles.srt"
+  [ -n "$THEMES" ] && echo "Themes:    $THEMES"
 fi
 
 echo ""

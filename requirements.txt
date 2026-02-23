@@ -5,15 +5,9 @@ gunicorn==22.0.0
 Flask==3.0.3
 Werkzeug==3.0.3
 
-# Audio processing (Phase 3)
-srt==3.5.3
-
-# Image / video (Phase 3)
-opencv-python-headless==4.9.0.80
+# Image generation (Phase 4)
+numpy
 Pillow==10.3.0
 
-# ML / AI (Phase 3 — installed now, wired in next)
+# Transcription (Phase 3+)
 faster-whisper==1.0.3
-diffusers==0.27.2
-transformers==4.40.2
-accelerate==0.30.0
