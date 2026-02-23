@@ -323,8 +323,8 @@ def _generate_ai_video(
             f"Scene: {prompt[:150]}"
         )
         
-        # Determine video duration (Grok supports 5s or 10s)
-        duration = "5" if segment_duration < 7 else "10"
+        # Determine video duration (Grok I2V only supports "6" or "10" seconds)
+        duration = "6" if segment_duration < 8 else "10"
         
         logger.info("Generating AI video for segment %d (duration=%ss)...", segment_idx, duration)
         
