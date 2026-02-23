@@ -2,6 +2,7 @@
 MythForge Video API — production-ready.
 MP3 → HD video (black 1280x720, synced audio).
 Docker WORKDIR /app; exports volume at /app/exports.
+Run via gunicorn: gunicorn --bind 0.0.0.0:8000 --workers 2 --timeout 660 simple_api:app
 """
 import logging
 import os
@@ -85,7 +86,11 @@ def get_duration(mp3_path: Path) -> float:
         ],
         capture_output=True, text=True, check=True, timeout=30,
     )
-    return float(result.stdout.strip())
+    raw = result.stdout.strip()
+    try:
+        return float(raw)
+    except ValueError:
+        raise RuntimeError(f"ffprobe returned non-numeric duration: {raw!r}")
 
 def cleanup_old_jobs():
     """Remove job dirs older than JOB_TTL_HOURS to prevent disk exhaustion."""
@@ -112,10 +117,10 @@ def health():
     status = "healthy" if ffmpeg_ok else "degraded"
     code   = 200 if ffmpeg_ok else 503
     return jsonify({
-        "status":   status,
-        "phase":    "2-ai-installed",
-        "ffmpeg":   ffmpeg_ok,
-        "exports":  str(EXPORTS_ROOT),
+        "status":  status,
+        "phase":   "2-ai-installed",
+        "ffmpeg":  ffmpeg_ok,
+        "exports": str(EXPORTS_ROOT),
     }), code
 
 
@@ -132,9 +137,10 @@ def render():
     if not mp3_file.filename:
         return jsonify({"error": "No file selected"}), 400
 
-    # Basic MIME / extension check
-    allowed = {"audio/mpeg", "audio/mp3", "audio/x-mpeg", "application/octet-stream"}
-    if mp3_file.content_type not in allowed and not mp3_file.filename.lower().endswith(".mp3"):
+    # MIME / extension check — accept common MP3 MIME types and extension
+    allowed_mime = {"audio/mpeg", "audio/mp3", "audio/x-mpeg", "application/octet-stream"}
+    if (mp3_file.content_type not in allowed_mime
+            and not mp3_file.filename.lower().endswith(".mp3")):
         return jsonify({"error": "File must be an MP3"}), 415
 
     # --- setup job ---
@@ -187,16 +193,20 @@ def render():
             cmd, capture_output=True, text=True,
             check=True, timeout=FFMPEG_TIMEOUT,
         )
-        logger.info("Video ready: %s (%.1f MB)",
-                    output_path, output_path.stat().st_size / (1024 * 1024))
+        size_mb = output_path.stat().st_size / (1024 * 1024)
+        logger.info("Video ready: %s (%.1f MB)", output_path, size_mb)
     except subprocess.TimeoutExpired:
         shutil.rmtree(job_dir, ignore_errors=True)
         logger.error("FFmpeg timed out after %ss", FFMPEG_TIMEOUT)
         return jsonify({"error": "Render timed out"}), 504
     except subprocess.CalledProcessError as e:
+        # Log full stderr internally; return a generic message to the client
+        logger.error("FFmpeg failed (job %s): %s", job_id, e.stderr[-1000:])
         shutil.rmtree(job_dir, ignore_errors=True)
-        logger.error("FFmpeg failed: %s", e.stderr[-500:])
-        return jsonify({"error": f"FFmpeg failed: {e.stderr[-500:]}"}), 500
+        return jsonify({"error": "Render failed — check server logs"}), 500
+    finally:
+        # Always remove the uploaded MP3 — output.mp4 is what the client needs
+        mp3_path.unlink(missing_ok=True)
 
     return jsonify({
         "success":    True,
@@ -212,15 +222,14 @@ def render():
 @require_api_key
 def job_status(job_id: str):
     """Check whether a job's output file exists."""
-    # Sanitize job_id (only hex chars expected from uuid4[:8])
     if not re.fullmatch(r"[0-9a-f]{8}", job_id):
         return jsonify({"error": "Invalid job_id"}), 400
     output = EXPORTS_ROOT / job_id / "output.mp4"
     if output.exists():
         return jsonify({
-            "job_id": job_id,
-            "status": "done",
-            "url":    f"http://{VPS_IP}/exports/{job_id}/output.mp4",
+            "job_id":  job_id,
+            "status":  "done",
+            "url":     f"http://{VPS_IP}/exports/{job_id}/output.mp4",
             "size_mb": round(output.stat().st_size / (1024 * 1024), 2),
         })
     job_dir = EXPORTS_ROOT / job_id
@@ -260,8 +269,14 @@ def internal_error(e):
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Entry point (local dev only — production uses gunicorn)
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     logger.info("MythForge API starting (env=%s debug=%s)", FLASK_ENV, DEBUG)
-    app.run(host="0.0.0.0", port=8000, debug=DEBUG)
+    app.run(
+        host="0.0.0.0",
+        port=8000,
+        debug=DEBUG,
+        use_reloader=DEBUG,
+        use_debugger=False,   # never expose the Werkzeug interactive debugger
+    )

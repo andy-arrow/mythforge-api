@@ -1,10 +1,11 @@
+# Production WSGI server
+gunicorn==22.0.0
+
 # Core API
 Flask==3.0.3
 Werkzeug==3.0.3
 
-# Audio
-ffmpeg-python==0.2.0
-pydub==0.25.1
+# Audio processing (Phase 3)
 srt==3.5.3
 
 # Image / video (Phase 3)

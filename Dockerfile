@@ -6,24 +6,31 @@ RUN apt-get update && \
     curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
 COPY simple_api.py .
 
-# Exports dir owned by appuser
 RUN mkdir -p /app/exports && chown appuser:appuser /app/exports
 
 USER appuser
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["python", "simple_api.py"]
+# 2 workers: one can render while the other handles health checks / status
+# timeout 660 > FFMPEG_TIMEOUT=600 so gunicorn never kills a live render
+CMD ["gunicorn", \
+     "--bind", "0.0.0.0:8000", \
+     "--workers", "2", \
+     "--timeout", "660", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
+     "--log-level", "info", \
+     "simple_api:app"]

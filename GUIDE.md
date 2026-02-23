@@ -32,7 +32,7 @@ Done. It pulls latest code, rebuilds, waits for healthy, smoke-tests.
 ssh ubuntu@vps-4d43058a.vps.ovh.net \
   "curl -s -X POST \
      -F 'mp3=@/opt/openclawworkspace/mythforge/hera_full_audio_combined.mp3' \
-     http://localhost:8000/api/render"
+     http://localhost/api/render"
 ```
 
 Response:
@@ -63,7 +63,7 @@ curl http://51.83.154.112/api/status/8c7436df
 | Containers down | `ssh ubuntu@... "cd /opt/mythforge-api && ./deploy.sh"` |
 | Check logs | `ssh ubuntu@... "cd /opt/mythforge-api && sudo docker compose logs api --tail=30"` |
 | Find Hera MP3 | `ssh ubuntu@... "find /opt /home -name 'hera*.mp3' 2>/dev/null"` |
-| Test with 5s tone | `ssh ubuntu@... "curl -s -X POST -F 'mp3=@/tmp/test.mp3' http://localhost:8000/api/render"` |
+| Test with 5s tone | `ssh ubuntu@... "curl -s -X POST -F 'mp3=@/tmp/test.mp3' http://localhost/api/render"` |
 
 ---
 
