@@ -29,12 +29,12 @@ Usage
       --api-url http://localhost
 
 ElevenLabs voices (via Kie.ai):
-  Matthew Schmitz  — cinematic, epic narrator voice  ← RECOMMENDED DEFAULT
-  George           — British, deep, authoritative
-  Daniel           — British, mid-range
-  Brian            — American, warm
-  Bill             — American, very deep
-  Charlie          — Australian, clear
+  George   — British, deep, authoritative  ← RECOMMENDED DEFAULT
+  Brian    — American, warm narrator
+  Bill     — American, very deep
+  Daniel   — British, mid-range
+  Callum   — Scottish, clear
+  Liam     — American, versatile
 
 Cost estimates:
   - ElevenLabs TTS: ~$0.01 per 1000 chars
@@ -352,8 +352,8 @@ def main() -> None:
         help="Path to the original narration MP3 (e.g. hera_full_audio_combined.mp3)",
     )
     parser.add_argument("--title",      default="HERA — The Birth of War")
-    parser.add_argument("--voice",      default="Matthew Schmitz",
-                        help="ElevenLabs voice name (Matthew Schmitz / George / Daniel / Brian / Bill)")
+    parser.add_argument("--voice",      default="George",
+                        help="ElevenLabs voice: George, Brian, Bill, Daniel, Callum, Liam")
     parser.add_argument("--kie-key",    required=True, help="kie.ai API key")
     parser.add_argument("--api-url",    default="http://51.83.154.112")
     parser.add_argument("--bgm-volume", type=float, default=0.15)
