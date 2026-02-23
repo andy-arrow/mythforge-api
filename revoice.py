@@ -228,12 +228,25 @@ def generate_elevenlabs(
 # Step 4 — download & concatenate audio chunks
 # ---------------------------------------------------------------------------
 
+def _download_file(url: str, dest: Path) -> None:
+    """Download a file with proper headers to avoid 403 errors."""
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; MythForge/1.0)",
+            "Accept": "*/*",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        dest.write_bytes(resp.read())
+
+
 def download_audio(audio_urls: list[str], dest: Path) -> None:
     """Download one or more audio chunks; concatenate with ffmpeg if needed."""
     print(f"[3/5] Downloading audio to {dest} …")
 
     if len(audio_urls) == 1:
-        urllib.request.urlretrieve(audio_urls[0], str(dest))
+        _download_file(audio_urls[0], dest)
         print(f"     Downloaded: {dest.stat().st_size // 1024} KB")
         return
 
@@ -241,7 +254,7 @@ def download_audio(audio_urls: list[str], dest: Path) -> None:
     tmp_files: list[Path] = []
     for i, url in enumerate(audio_urls):
         tmp = dest.parent / f"_chunk_{i}.mp3"
-        urllib.request.urlretrieve(url, str(tmp))
+        _download_file(url, tmp)
         tmp_files.append(tmp)
         print(f"     Chunk {i + 1}: {tmp.stat().st_size // 1024} KB")
 
